@@ -1,7 +1,19 @@
 import os
+import sys
+
+# 强制刷新输出缓冲区，让文字尽快显示（在 exe 解压完成后第一时间输出）
+sys.stdout.write("=" * 60 + "\n")
+sys.stdout.write("  促销周报统计程序\n")
+sys.stdout.write("=" * 60 + "\n")
+sys.stdout.write("⏳ 程序正在初始化，请稍候...\n")
+sys.stdout.write("   (正在解压依赖库，启动可能需要 20-30 秒)\n")
+sys.stdout.write("-" * 60 + "\n")
+sys.stdout.flush()  # 强制立即输出，不等缓冲区满
+
 import glob
 import pandas as pd
 import warnings
+
 
 from datetime import datetime, timedelta
 from copy import copy
@@ -12,6 +24,20 @@ from openpyxl.styles import Alignment
 
 # 忽略 openpyxl 的 “Workbook contains no default style” 警告
 warnings.filterwarnings("ignore", category=UserWarning, module="openpyxl")
+
+
+# ==================================================
+# 获取可执行文件所在目录（兼容打包和源码运行）
+# ==================================================
+
+def get_base_dir():
+    """返回可执行文件所在的目录（打包后为exe所在目录，源码运行时为脚本所在目录）"""
+    if getattr(sys, 'frozen', False):
+        # 打包后，sys.executable 是 exe 的完整路径
+        return os.path.dirname(sys.executable)
+    else:
+        # 源码运行时，返回当前脚本所在目录
+        return os.path.dirname(os.path.abspath(__file__))
 
 
 # ==================================================
@@ -61,13 +87,18 @@ EMPLOYEE_SHEET = "用户权限信息表"
 
 
 # ==================================================
-# 查找最新文件
+# 查找最新文件（从 exe 所在目录查找）
 # ==================================================
 
 def find_latest_file(keyword, ext):
-    files = glob.glob(os.path.join(os.getcwd(), f"*{keyword}*.{ext}"))
+    base = get_base_dir()
+    # 先尝试在 exe 所在目录查找
+    files = glob.glob(os.path.join(base, f"*{keyword}*.{ext}"))
+    # 如果没有，再尝试当前工作目录（兼容旧习惯）
     if not files:
-        raise Exception(f"未找到文件：{keyword}*.{ext}")
+        files = glob.glob(os.path.join(os.getcwd(), f"*{keyword}*.{ext}"))
+    if not files:
+        raise Exception(f"未找到文件：{keyword}*.{ext} (搜索目录：{base})")
     files.sort(key=os.path.getmtime, reverse=True)
     return files[0]
 
@@ -123,12 +154,14 @@ def copy_row_format(ws, source_row, target_row):
 
 
 # ==================================================
-# 加载员工 ID 映射（Portal → 工号）
+# 加载员工 ID 映射（Portal → 工号），从 exe 所在目录读取
 # ==================================================
 
 def load_employee_mapping():
     try:
-        df_emp = pd.read_excel(EMPLOYEE_FILE, sheet_name=EMPLOYEE_SHEET, dtype=str)
+        base = get_base_dir()
+        emp_path = os.path.join(base, EMPLOYEE_FILE)
+        df_emp = pd.read_excel(emp_path, sheet_name=EMPLOYEE_SHEET, dtype=str)
         df_emp.columns = df_emp.columns.astype(str).str.strip()
         mapping = {}
         for _, row in df_emp.iterrows():
@@ -143,7 +176,7 @@ def load_employee_mapping():
 
 
 # ==================================================
-# 生成工号次数统计文件
+# 生成工号次数统计文件（保存在 exe 所在目录）
 # ==================================================
 
 def generate_attendance_stats(result_df, target_date, portal_to_emp):
@@ -221,8 +254,10 @@ def generate_attendance_stats(result_df, target_date, portal_to_emp):
     dt = datetime.strptime(target_date, '%Y%m%d')
     month_day = f"{dt.month}.{dt.day:02d}"
     filename = f"工号次数{month_day}.xlsx"
-    df_stats.to_excel(filename, index=False)
-    print(f"已生成统计文件：{filename}")
+    # 保存到 exe 所在目录
+    out_path = os.path.join(get_base_dir(), filename)
+    df_stats.to_excel(out_path, index=False)
+    print(f"已生成统计文件：{out_path}")
 
 
 # ==================================================
@@ -251,6 +286,9 @@ def parse_headers(ws):
 # ==================================================
 
 def process():
+    # 打印基础目录，方便调试
+    print(f"程序基础目录：{get_base_dir()}")
+
     target_date = get_target_date()
 
     portal_to_emp = load_employee_mapping()

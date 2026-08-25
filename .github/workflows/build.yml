@@ -26,10 +26,10 @@ jobs:
 
       - name: 打包成单个 EXE
         run: |
-          pyinstaller --onefile --icon=report.ico --console --name promotionReport get_report.py
+          pyinstaller --onefile --console --name broadbandOrder order.py
 
       - name: 上传 EXE 作为构建产物
         uses: actions/upload-artifact@v4
         with:
-          name: promotion_report_exe
-          path: dist/promotionReport.exe   # ← 
+          name: broadband_order_exe
+          path: dist/broadbandOrder.exe   # ← 

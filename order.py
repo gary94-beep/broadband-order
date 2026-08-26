@@ -28,15 +28,25 @@ def get_base_dir():
         return os.path.dirname(os.path.abspath(__file__))
 
 
-def find_latest_file(pattern="宽带开通工单", ext=".xlsx"):
+def find_files(pattern="宽带开通工单", ext=".xlsx", mode=1):
+    """
+    根据模式返回文件列表
+    mode=1: 返回修改日期最新的一个文件（列表仅含一个）
+    mode=2: 返回所有匹配的文件，按修改时间从旧到新排序
+    """
+    base_dir = get_base_dir()
     files = []
-    for f in os.listdir('.'):
+    for f in os.listdir(base_dir):
         if f.startswith(pattern) and f.endswith(ext):
-            files.append((f, os.path.getmtime(f)))
+            files.append((f, os.path.getmtime(os.path.join(base_dir, f))))
     if not files:
-        return None
-    files.sort(key=lambda x: x[1], reverse=True)
-    return files[0][0]
+        return []
+    files.sort(key=lambda x: x[1], reverse=True)  # 最新的在前
+    if mode == 1:
+        return [files[0][0]]
+    else:  # mode == 2
+        # 返回所有文件名，按修改时间从旧到新排序（可选）
+        return [f[0] for f in files[::-1]]  # 从旧到新
 
 
 def ensure_writable(filepath):
@@ -56,14 +66,45 @@ def clean_town(value):
     return value_str
 
 
+def process_single_file(file_path, mapping, target_columns):
+    """
+    读取单个文件，过滤业务范围，映射为导用DataFrame
+    返回 df_out（已处理镇区）
+    """
+    try:
+        df_src = pd.read_excel(file_path, sheet_name="IVR未接通数据", dtype=str)
+    except Exception as e:
+        print(f"  [警告] 读取文件 {file_path} 失败：{e}，跳过")
+        return None
+
+    # 过滤业务范围
+    allowed_business = ['FTTR开通', '宽带开通', '全屋WIFI基础产品开通']
+    if '业务范围' in df_src.columns:
+        df_src = df_src[df_src['业务范围'].isin(allowed_business)]
+        if len(df_src) == 0:
+            return None  # 无有效数据
+    else:
+        print(f"  [警告] 文件 {file_path} 无'业务范围'列，不过滤")
+
+    # 映射
+    df_out = pd.DataFrame(columns=target_columns)
+    for src_col, tgt_col in mapping.items():
+        if src_col in df_src.columns and tgt_col in target_columns:
+            df_out[tgt_col] = df_src[src_col]
+    # 处理镇区
+    if "镇区" in df_out.columns:
+        df_out["镇区"] = df_out["镇区"].apply(clean_town)
+    return df_out
+
+
 def main():
-    # 1. 切换到 EXE 所在目录
+    # 1. 切换工作目录
     base_dir = get_base_dir()
     os.chdir(base_dir)
     print(f"\n[工作目录] {base_dir}\n")
     start_time = time.time()
 
-    # 检查模板文件
+    # 2. 检查模板文件
     template_file = "导数模板.xlsx"
     if not os.path.exists(template_file):
         print("[错误] 模板文件 '导数模板.xlsx' 不存在于当前目录。")
@@ -71,47 +112,29 @@ def main():
         input("按 Enter 键退出...")
         return
 
-    # 2. 定位最新源文件
-    print("[查找] 正在查找最新的数据文件...")
-    src_file = find_latest_file("宽带开通工单", ".xlsx")
-    if src_file is None:
-        print("[错误] 未找到以 '宽带开通工单' 开头的 .xlsx 文件。")
+    # 3. 用户选择模式
+    print("请选择处理模式：")
+    print("  1 - 单文件模式（只处理最新的一份文件）")
+    print("  2 - 多文件模式（合并所有匹配的文件）")
+    mode_choice = input("请输入数字 1 或 2：").strip()
+    while mode_choice not in ['1', '2']:
+        mode_choice = input("输入无效，请重新输入 1 或 2：").strip()
+    mode = int(mode_choice)
+
+    # 4. 获取文件列表
+    file_list = find_files("宽带开通工单", ".xlsx", mode)
+    if not file_list:
+        print("[错误] 未找到任何以 '宽带开通工单' 开头的 .xlsx 文件。")
         print(f"   请将数据文件放在当前目录：{base_dir}")
         input("按 Enter 键退出...")
         return
-    print(f"[成功] 找到源文件：{src_file}\n")
 
-    # 3. 读取源数据
-    print("[读取] 正在读取源数据（IVR未接通数据）...")
-    try:
-        df_src = pd.read_excel(src_file, sheet_name="IVR未接通数据", dtype=str)
-        print(f"[成功] 读取完成，共 {len(df_src)} 条记录\n")
-    except Exception as e:
-        print(f"[错误] 读取源文件失败：{e}")
-        input("按 Enter 键退出...")
-        return
-
-    # 4. 过滤业务范围
-    print("[过滤] 正在过滤业务范围（FTTR开通/宽带开通/全屋WIFI基础产品开通）...")
-    allowed_business = ['FTTR开通', '宽带开通', '全屋WIFI基础产品开通']
-    if '业务范围' in df_src.columns:
-        df_src = df_src[df_src['业务范围'].isin(allowed_business)]
-        print(f"[成功] 过滤后剩余 {len(df_src)} 条记录\n")
+    if mode == 1:
+        print(f"[查找] 单文件模式，处理最新文件：{file_list[0]}")
     else:
-        print("[警告] 源数据中无'业务范围'列，将不过滤。\n")
+        print(f"[查找] 多文件模式，共找到 {len(file_list)} 个文件，将按日期合并处理。")
 
-    # 5. 映射关系
-    mapping = {
-        "用户号码": "客户号码",
-        "呼叫时间": "系统产品名称",
-        "业务范围": "业务范围",
-        "分公司": "分公司",
-        "镇区": "镇区",
-        "归档日期": "归档日期",
-        "地址": "地址",
-    }
-
-    # 6. 读取模板列名
+    # 5. 读取模板列名（用于映射）
     print("[模板] 正在读取模板文件列名...")
     try:
         df_template = pd.read_excel(template_file, sheet_name="导用", nrows=0)
@@ -122,33 +145,50 @@ def main():
         input("按 Enter 键退出...")
         return
 
-    # 7. 构建导用DataFrame
-    print("[生成] 正在生成导用数据...")
-    df_out = pd.DataFrame(columns=target_columns)
-    for src_col, tgt_col in mapping.items():
-        if src_col in df_src.columns and tgt_col in target_columns:
-            df_out[tgt_col] = df_src[src_col]
-    df_out = df_out[target_columns]
-    print(f"[成功] 导用数据生成完成，共 {len(df_out)} 条记录\n")
+    # 6. 映射关系（所有文件共用）
+    mapping = {
+        "用户号码": "客户号码",
+        "呼叫时间": "系统产品名称",
+        "业务范围": "业务范围",
+        "分公司": "分公司",
+        "镇区": "镇区",
+        "归档日期": "归档日期",
+        "地址": "地址",
+    }
 
-    # 8. 处理镇区
-    if "镇区" in df_out.columns:
-        print("[处理] 正在处理镇区名称（去掉末尾'镇'字）...")
-        df_out["镇区"] = df_out["镇区"].apply(clean_town)
-        print("[成功] 镇区处理完成\n")
+    # 7. 循环处理所有文件，合并数据
+    all_dfs = []
+    total_files = len(file_list)
+    for idx, fname in enumerate(file_list, 1):
+        print(f"[处理] ({idx}/{total_files}) 正在处理文件：{fname} ...")
+        df_part = process_single_file(fname, mapping, target_columns)
+        if df_part is not None and len(df_part) > 0:
+            all_dfs.append(df_part)
+            print(f"  [成功] 该文件贡献 {len(df_part)} 条记录")
+        else:
+            print(f"  [跳过] 该文件无有效数据或读取失败")
 
-    # 9. 生成镇区汇总
+    if not all_dfs:
+        print("[错误] 所有文件均无有效数据，程序退出。")
+        input("按 Enter 键退出...")
+        return
+
+    # 8. 合并所有数据
+    df_out = pd.concat(all_dfs, ignore_index=True)
+    print(f"\n[汇总] 合并后总记录数：{len(df_out)}\n")
+
+    # 9. 生成镇区汇总（基于合并后的数据）
     if "镇区" in df_out.columns:
         print("[统计] 正在统计镇区数量...")
         town_counts = df_out["镇区"].value_counts().reset_index()
         town_counts.columns = ["镇区", "数量"]
         print(f"[成功] 共 {len(town_counts)} 个镇区\n")
     else:
-        print("[错误] 导用数据中无'镇区'列，无法生成汇总。")
+        print("[错误] 合并数据中无'镇区'列，无法生成汇总。")
         input("按 Enter 键退出...")
         return
 
-    # 10. 日期计算
+    # 10. 日期计算（汇总表使用今天的日期范围）
     today = datetime.now().date()
     start_date = today.strftime("%m%d")
     end_date = (today + timedelta(days=2)).strftime("%m%d")
@@ -157,7 +197,7 @@ def main():
     print(f"[日期] 范围：{date_range}")
     print(f"[日期] 今日：{today_display}\n")
 
-    # 11. 构建汇总表
+    # 11. 构建汇总表（添加总计行）
     df_summary = pd.DataFrame({
         "日期范围": [date_range] * len(town_counts),
         "日期": [today_display] * len(town_counts),
@@ -199,7 +239,6 @@ def main():
         print(f"[错误] 复制模板失败：{e}")
         input("按 Enter 键退出...")
         return
-
     ensure_writable(output_file)
 
     # 15. 写入主文件
@@ -209,7 +248,7 @@ def main():
         ws = wb["导用"]
         ws.delete_rows(2, ws.max_row)
 
-        print("  -> 写入导用数据...")
+        print("  -> 写入导用数据（全部记录）...")
         for r_idx, row in enumerate(dataframe_to_rows(df_out, index=False, header=False), start=2):
             for c_idx, value in enumerate(row, start=1):
                 ws.cell(row=r_idx, column=c_idx, value=value)
@@ -229,7 +268,7 @@ def main():
         input("按 Enter 键退出...")
         return
 
-    # ========== 16. 按镇区分拆导出 ==========
+    # ========== 16. 按镇区分拆导出（合并所有数据） ==========
     folder_name = today.strftime("%m%d")
     try:
         if os.path.exists(folder_name):
@@ -243,7 +282,7 @@ def main():
 
     towns = df_out["镇区"].dropna().unique()
     town_list = [t for t in towns if pd.notna(t) and t != ""]
-    print(f"[拆分] 开始按镇区分拆文件，共 {len(town_list)} 个镇区...\n")
+    print(f"[拆分] 开始按镇区分拆文件（合并后所有记录），共 {len(town_list)} 个镇区...\n")
 
     for idx, town in enumerate(town_list, 1):
         df_town = df_out[df_out["镇区"] == town].copy()

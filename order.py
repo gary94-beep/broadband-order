@@ -3,7 +3,7 @@ import sys
 
 # ===== 第一时间输出友好提示，让用户知道程序正在初始化 =====
 sys.stdout.write("=" * 60 + "\n")
-sys.stdout.write("  宽带工单数据处理工具 v1.0\n")
+sys.stdout.write("  宽带工单数据处理工具 v1.3\n")
 sys.stdout.write("=" * 60 + "\n")
 sys.stdout.write(">> 程序正在初始化，请稍候...\n")
 sys.stdout.write("   (正在解压依赖库，启动可能需要 20-30 秒)\n")
@@ -213,24 +213,12 @@ def main():
     })
     df_summary = pd.concat([df_summary, summary_row], ignore_index=True)
 
-    # 12. 输出主文件
-    output_file = "导数模板_处理后.xlsx"
+    # ===== 生成带时间戳的输出文件名 =====
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    output_file = f"导数模板_处理后_{timestamp}.xlsx"
+    print(f"[输出] 将生成主文件：{output_file}\n")
 
-    # 13. 删除旧文件
-    if os.path.exists(output_file):
-        try:
-            os.remove(output_file)
-            print(f"[删除] 已删除旧文件：{output_file}")
-        except PermissionError:
-            print(f"[错误] 文件 {output_file} 正在被占用，请关闭后重新运行。")
-            input("按 Enter 键退出...")
-            return
-        except Exception as e:
-            print(f"[错误] 删除旧文件失败：{e}")
-            input("按 Enter 键退出...")
-            return
-
-    # 14. 复制模板
+    # 12. 复制模板（直接复制到新文件名，不删除旧文件）
     print("[复制] 正在复制模板文件并保留样式...")
     try:
         shutil.copy2(template_file, output_file)
@@ -241,7 +229,7 @@ def main():
         return
     ensure_writable(output_file)
 
-    # 15. 写入主文件
+    # 13. 写入主文件
     print("[写入] 正在写入主文件数据...")
     try:
         wb = load_workbook(output_file)
@@ -268,7 +256,7 @@ def main():
         input("按 Enter 键退出...")
         return
 
-    # ========== 16. 按镇区分拆导出（合并所有数据） ==========
+    # ========== 14. 按镇区分拆导出（合并所有数据） ==========
     folder_name = today.strftime("%m%d")
     try:
         if os.path.exists(folder_name):

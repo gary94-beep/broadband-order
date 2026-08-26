@@ -2,8 +2,8 @@ name: Build Windows EXE
 
 on:
   push:
-    branches: [ main ]        # 推送到 main 分支时触发
-  workflow_dispatch:          # 允许手动触发
+    branches: [ main ]
+  workflow_dispatch:
 
 jobs:
   build:
@@ -16,7 +16,7 @@ jobs:
       - name: 设置 Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.10'
+          python-version: '3.8'      # 关键：改为 3.8
 
       - name: 安装依赖
         run: |
@@ -28,8 +28,8 @@ jobs:
         run: |
           pyinstaller --onefile --console --name broadbandOrder --clean --noconfirm order.py
 
-      - name: 上传 EXE 作为构建产物
+      - name: 上传 EXE
         uses: actions/upload-artifact@v4
         with:
           name: broadband_order_exe
-          path: dist/broadbandOrder.exe   # 注意扩展名 .exe
+          path: dist/broadbandOrder.exe

@@ -14,6 +14,7 @@ sys.stdout.flush()  # 强制立即输出
 import shutil
 import stat
 import time
+import tempfile
 import pandas as pd
 from openpyxl import load_workbook
 from openpyxl.utils.dataframe import dataframe_to_rows
@@ -102,6 +103,18 @@ def main():
     base_dir = get_base_dir()
     os.chdir(base_dir)
     print(f"\n[工作目录] {base_dir}\n")
+
+    # ===== 新增：重定向 openpyxl 临时目录 =====
+    temp_dir = os.path.join(base_dir, "openpyxl_temp")
+    try:
+        os.makedirs(temp_dir, exist_ok=True)
+        os.environ['OPENPYXL_TMP_DIR'] = temp_dir
+        tempfile.tempdir = temp_dir
+        print(f"[临时目录] 已设置为：{temp_dir}")
+    except Exception as e:
+        print(f"[警告] 设置临时目录失败，将使用系统默认：{e}")
+    # ===========================================
+
     start_time = time.time()
 
     # 2. 检查模板文件
@@ -282,6 +295,14 @@ def main():
             print(f"  [{idx}/{len(town_list)}] [成功] {town} 已保存（{len(df_town)} 条）")
         except Exception as e:
             print(f"  [{idx}/{len(town_list)}] [错误] {town} 写入失败：{e}")
+
+    # ===== 清理临时目录 =====
+    try:
+        if os.path.exists(temp_dir):
+            shutil.rmtree(temp_dir)
+            print(f"[清理] 已删除临时目录：{temp_dir}")
+    except Exception as e:
+        print(f"[警告] 清理临时目录失败：{e}")
 
     elapsed = time.time() - start_time
     print("\n" + "=" * 60)
